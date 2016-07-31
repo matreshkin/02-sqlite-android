@@ -1,0 +1,35 @@
+<menu xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    tools:context="com.yandex.minavegador.TabsActivity">
+    <item
+        android:id="@+id/action_show_tabs"
+        android:orderInCategory="100"
+        android:title="@string/action_show_tabs"
+        app:showAsAction="always" />
+    <item
+        android:id="@+id/action_close_tab"
+        android:orderInCategory="100"
+        android:title="@string/action_close_tab"
+        app:showAsAction="ifRoom" />
+    <item
+        android:id="@+id/action_new_tab"
+        android:orderInCategory="100"
+        android:title="@string/action_new_tab"
+        app:showAsAction="never" />
+    <item
+        android:id="@+id/action_history"
+        android:orderInCategory="100"
+        android:title="@string/action_history"
+        app:showAsAction="never" />
+    <item
+        android:id="@+id/action_bookmarks"
+        android:orderInCategory="100"
+        android:title="@string/action_bookmarks"
+        app:showAsAction="never" />
+    <item
+        android:id="@+id/action_exit"
+        android:orderInCategory="100"
+        android:title="@string/action_exit"
+        app:showAsAction="never" />
+</menu>
