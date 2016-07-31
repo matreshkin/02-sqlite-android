@@ -15,6 +15,9 @@ import android.view.MenuItem;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 
+import com.yandex.minavegador.db.DbNotificationManager;
+import com.yandex.minavegador.db.DbProvider;
+import com.yandex.minavegador.db.FakeContainer;
 import com.yandex.minavegador.utils.Utils;
 
 import java.util.ArrayList;
@@ -26,11 +29,26 @@ public class TabsActivity extends AppCompatActivity {
     private ArrayList<Tab> mTabs = new ArrayList<>();
     private Tab mCurrentTab = null;
     private WebView mWebView;
+    private AsyncTask<Void, Void, Bitmap> mIconLoadWebTask;
+    private DbProvider.ResultCallback<Bitmap> mIconLoadDbCallback;
+
+    private DbProvider mDbProvider;
+    private DbNotificationManager mNotifier;
+    private DbNotificationManager.Listener mDbListener = new DbNotificationManager.Listener() {
+        @Override
+        public void onDataUpdated() {
+            // TODO
+        }
+    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        mDbProvider = FakeContainer.getProviderInstance(this);
+        mNotifier = FakeContainer.getNotificationInstance(this);
+
         setContentView(R.layout.activity_tabs);
+
         Toolbar toolbar = (Toolbar) findViewById(R.id.toolbar);
         setSupportActionBar(toolbar);
         getSupportActionBar().setDisplayUseLogoEnabled(true);
@@ -48,23 +66,39 @@ public class TabsActivity extends AppCompatActivity {
         mWebView = (WebView) findViewById(R.id.webveiw);
         mWebView.setWebViewClient(new WebViewClient() {
             public void onPageFinished(WebView view, String url) {
-                onUrlLoaded(url);
+                String faviconUrl = Utils.getFaviconUrlForPage(url);
+                onUrlLoaded(url, faviconUrl);
             }
+            public void onPageStarted(WebView view, String url, Bitmap favicon) {
+                onUrlStarted(url);
+        }
         });
         if (savedInstanceState == null) {
             openNewTab();
         }
+
+        mNotifier.addListener(mDbListener);
+    }
+
+    @Override
+    public void onDestroy() {
+        super.onDestroy();
+        cancelLoadingFaviconFromWeb();
+        mNotifier.removeListener(mDbListener);
     }
 
     private void openNewTab() {
         startActivityForResult(new Intent(this, NewTabActivity.class), REQUEST_CODE_NEW_TAB);
     }
 
+    private void showHistory() {}
+
     private void onNewTabOpened(String url, String searchQuery) {
         Tab tab = new Tab();
         tab.backStackUrls.add(new MyUrl(url, searchQuery, true));
         mTabs.add(tab);
         mCurrentTab = tab;
+        cancelLoadingFaviconFromWeb();
         loadCurrentContent();
         updateTabCounter();
     }
@@ -86,10 +120,20 @@ public class TabsActivity extends AppCompatActivity {
         }
     }
 
-    private void onUrlLoaded(String url) {
+    private void onUrlStarted(String url) {
+        cancelLoadingFaviconFromDb();
+        loadIconFromDb(url);
+    }
+
+    private void onUrlLoaded(String url, String iconUrl) {
         if (mCurrentTab == null) {
             return;
         }
+
+        cancelLoadingFaviconFromWeb();
+
+        loadIconFromWeb(url, iconUrl);
+
         if (mCurrentTab.getCurrentUrl().pendingNavigation) {
             mCurrentTab.removeLast();
         }
@@ -101,12 +145,16 @@ public class TabsActivity extends AppCompatActivity {
         } else {
             getSupportActionBar().setTitle(mWebView.getTitle());
         }
+        mDbProvider.insertHistoryItem(urla.url);
     }
 
     private boolean closeCurrentTab() {
         if (mCurrentTab == null) {
             return true;
         }
+        cancelLoadingFaviconFromWeb();
+        cancelLoadingFaviconFromDb();
+
         mTabs.remove(mCurrentTab);
         mCurrentTab = null;
         if (mTabs.isEmpty()) {
@@ -118,26 +166,72 @@ public class TabsActivity extends AppCompatActivity {
         return false;
     }
 
-    private void loadIcon() {
+    private void loadIconFromDb(final String pageUrl) {
         if (mCurrentTab == null) {
             return;
         }
-        final String url = mCurrentTab.getCurrentUrl().url;
-        new AsyncTask<Void, Void, Bitmap>() {
+        cancelLoadingFaviconFromDb();
+
+        mIconLoadDbCallback = new DbProvider.ResultCallback<Bitmap>() {
+            @Override
+            public void onFinished(Bitmap result) {
+                if (mIconLoadDbCallback != this) {
+                    return;
+                }
+                onIconLoadedFromDb(pageUrl, result);
+            }
+        };
+        mDbProvider.getFavicon(pageUrl, mIconLoadDbCallback);
+    }
+
+    private void cancelLoadingFaviconFromDb() {
+        mIconLoadDbCallback = null;
+    }
+
+    private void onIconLoadedFromDb(String pageUrl, Bitmap image) {
+        cancelLoadingFaviconFromDb();
+        if (image == null)
+            return;
+        if (mCurrentTab.getCurrentUrl().url.equalsIgnoreCase(pageUrl)) {
+            setBarIcon(image);
+        }
+    }
+
+    private void loadIconFromWeb(final String pageUrl, final String iconUrl) {
+        if (mCurrentTab == null) {
+            return;
+        }
+        cancelLoadingFaviconFromWeb();
+
+        mIconLoadWebTask = new AsyncTask<Void, Void, Bitmap>() {
             @Override
             protected Bitmap doInBackground(Void... params) {
-                return Utils.getFavicon(getBaseContext(), url);
+                return Utils.loadBitmap(getBaseContext(), iconUrl);
             }
             @Override
             protected void onPostExecute(Bitmap result) {
                 if (isCancelled()) return;
-                onIconLoaded(result);
+                onIconLoadedFromWeb(pageUrl, iconUrl, result);
             }
-        }.execute();
+        };
+        mIconLoadWebTask.execute();
     }
 
-    private void onIconLoaded(Bitmap image) {
-        setBarIcon(image);
+    private void cancelLoadingFaviconFromWeb() {
+        if (mIconLoadWebTask != null)
+            mIconLoadWebTask.cancel(false);
+        mIconLoadWebTask = null;
+    }
+
+    private void onIconLoadedFromWeb(String pageUrl, String iconUrl, Bitmap image) {
+        cancelLoadingFaviconFromWeb();
+        if (image == null)
+            return;
+        cancelLoadingFaviconFromDb();  // no need after a new icon fetched
+        if (mCurrentTab.getCurrentUrl().url.equalsIgnoreCase(pageUrl)) {
+            setBarIcon(image);
+        }
+        mDbProvider.insertFavicon(pageUrl, iconUrl, image);
     }
 
     private void setBarIcon(Bitmap image) {
@@ -150,7 +244,6 @@ public class TabsActivity extends AppCompatActivity {
         mCurrentTab.getCurrentUrl().pendingNavigation = true;
         String url = mCurrentTab.getCurrentUrl().url;
         mWebView.loadUrl(url);
-        loadIcon();
     }
 
     private void updateTabCounter() {
@@ -181,6 +274,9 @@ public class TabsActivity extends AppCompatActivity {
                 if (closeCurrentTab()) {
                     openNewTab();
                 }
+                break;
+            case R.id.action_history:
+                showHistory();
                 break;
         }
 

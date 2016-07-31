@@ -22,18 +22,12 @@ import java.net.URLConnection;
  */
 public class Utils {
 
-    @WorkerThread
+
     @Nullable
-    public static Bitmap getFavicon(Context context, @NonNull String url) {
-        Uri uri = Uri.parse(url);
-        String host = uri.getHost();
-        if (host == null) {
-            return null;
-        }
-        String faviconUrl = "http://favicon.yandex.net/favicon/" + host;
+    public static Bitmap loadBitmap(Context context, String bitmapUrl) {
         InputStream inputStream = null;
         try {
-            URL u = new URL(faviconUrl);
+            URL u = new URL(bitmapUrl);
             URLConnection dc = u.openConnection();
             dc.setConnectTimeout(5000);
             dc.setReadTimeout(5000);
@@ -47,6 +41,17 @@ public class Utils {
         } finally {
             closeSilently(inputStream);
         }
+    }
+
+    @Nullable
+    public static String getFaviconUrlForPage(@NonNull String pageUrl) {
+        Uri uri = Uri.parse(pageUrl);
+        String host = uri.getHost();
+        if (host == null) {
+            return null;
+        }
+        String faviconUrl = "http://favicon.yandex.net/favicon/" + host;
+        return faviconUrl;
     }
 
     private static void closeSilently(Closeable closable) {
